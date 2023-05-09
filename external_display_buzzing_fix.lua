@@ -11,8 +11,8 @@ watcher = hs.caffeinate.watcher.new(function(eventType)
         -- Restore previous brightness after a delay
         hs.timer.doAfter(2.0, function()
             local prevBrightness = hs.settings.get(brightnessKey)
-            if prevBrightness then
-                hs.execute("/opt/homebrew/bin/m1ddc set luminance 100")
+            hs.execute("/opt/homebrew/bin/m1ddc set luminance 100")
+            if tonumber(prevBrightness) < 100 then
                 hs.execute("/opt/homebrew/bin/m1ddc set luminance " .. prevBrightness)
             end
         end)

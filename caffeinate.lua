@@ -1,59 +1,47 @@
--- Caffeinate-on-AC for clamshell/KVM setups
--- Starts/stops `caffeinate -d` based on power source.
--- Also runs the correct state at boot/login.
+-- Hammerspoon: Caffeinate-on-AC (no external process)
+-- Uses hs.caffeinate.set() to assert displayIdle on AC only.
 
-local caffeinateTask = nil
+local menu = hs.menubar.new()
 
-local function isOnAC()
-  -- Returns "AC Power" or "Battery Power"
+local function onAC()
   return hs.battery.powerSource() == "AC Power"
 end
 
-local function startCaffeinate()
-  if caffeinateTask and caffeinateTask:isRunning() then return end
-  -- Extra safety: kill any orphaned caffeinate
-  hs.task.new("/usr/bin/killall", nil, {"-q", "caffeinate"}):start()
-  caffeinateTask = hs.task.new("/usr/bin/caffeinate",
-    function() caffeinateTask = nil end,
-    {"-dims"}
-  )
-  caffeinateTask:start()
-  hs.alert.show("caffeinate: ON (AC)")
+local function setAssertions(enable)
+  hs.caffeinate.set("displayIdle", enable)
+  hs.caffeinate.set("systemIdle", enable)
+  hs.caffeinate.set("system", enable)
 end
 
-local function stopCaffeinate()
-  if caffeinateTask and caffeinateTask:isRunning() then
-    caffeinateTask:terminate()
-    caffeinateTask = nil
-  end
-  -- Ensure nothing lingering
-  hs.task.new("/usr/bin/killall", nil, {"-q", "caffeinate"}):start()
-  hs.alert.show("caffeinate: OFF (Battery)")
-end
-
-local function applyPowerPolicy()
-  if isOnAC() then startCaffeinate() else stopCaffeinate() end
-end
-
--- Run once on Hammerspoon launch (covers reboot/login)
-applyPowerPolicy()
-
--- Watch for power changes (plug/unplug)
-local powerWatcher = hs.battery.watcher.new(function()
-  applyPowerPolicy()
-end)
-powerWatcher:start()
-
--- Optional: menubar indicator (tiny dot shows state)
-local menu = hs.menubar.new()
 local function refreshMenu()
-  if isOnAC() then
-    menu:setTitle("●")  -- filled dot when ON
-    menu:setTooltip("caffeinate: ON (AC)")
+  if not menu then return end
+  if onAC() then
+    menu:setTitle("●")
+    menu:setTooltip("caffeinate: ON (AC) — displayIdle asserted")
   else
-    menu:setTitle("○")  -- hollow dot when OFF
+    menu:setTitle("○")
     menu:setTooltip("caffeinate: OFF (Battery)")
   end
 end
+
+local function applyPolicy()
+  if onAC() then
+    setAssertions(true)
+    hs.alert.show("caffeinate: ON (AC)")
+  else
+    setAssertions(false)
+    hs.alert.show("caffeinate: OFF (Battery)")
+  end
+  refreshMenu()
+  -- Debug: print current assertions to the console
+  hs.printf("Assertions: %s", hs.inspect(hs.caffeinate.currentAssertions()))
+end
+
+-- Apply once after launch (reload/boot). Small delay lets powerSource settle.
+hs.timer.doAfter(1, applyPolicy)
+
+-- React to plug/unplug changes
+local pw = hs.battery.watcher.new(applyPolicy)
+pw:start()
+
 refreshMenu()
-hs.timer.doEvery(5, refreshMenu)

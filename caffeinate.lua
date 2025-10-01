@@ -1,47 +1,46 @@
--- Hammerspoon: Caffeinate-on-AC (no external process)
--- Uses hs.caffeinate.set() to assert displayIdle on AC only.
+-- Caffeinate-on-AC for clamshell/KVM setups
+-- Starts/stops `caffeinate -d` based on power source.
+-- Also runs the correct state at boot/login.
 
-local menu = hs.menubar.new()
+local caffeinateTask = nil
 
-local function onAC()
+local function isOnAC()
+  -- Returns "AC Power" or "Battery Power"
   return hs.battery.powerSource() == "AC Power"
 end
 
-local function setAssertions(enable)
-  hs.caffeinate.set("displayIdle", enable)
-  hs.caffeinate.set("systemIdle", enable)
-  hs.caffeinate.set("system", enable)
-end
-
-local function refreshMenu()
-  if not menu then return end
-  if onAC() then
-    menu:setTitle("●")
-    menu:setTooltip("caffeinate: ON (AC) — displayIdle asserted")
-  else
-    menu:setTitle("○")
-    menu:setTooltip("caffeinate: OFF (Battery)")
-  end
-end
-
-local function applyPolicy()
-  if onAC() then
-    setAssertions(true)
+local function startCaffeinate()
+  if caffeinateTask and caffeinateTask:isRunning() then return end
+  -- Kill any orphaned caffeinate processes and start new one after completion
+  hs.task.new("/usr/bin/killall", function()
+    -- This callback runs when killall completes
+    caffeinateTask = hs.task.new("/usr/bin/caffeinate", function()
+        caffeinateTask = nil
+    end, {"-dims"})
+    caffeinateTask:start()
     hs.alert.show("caffeinate: ON (AC)")
-  else
-    setAssertions(false)
-    hs.alert.show("caffeinate: OFF (Battery)")
-  end
-  refreshMenu()
-  -- Debug: print current assertions to the console
-  hs.printf("Assertions: %s", hs.inspect(hs.caffeinate.currentAssertions()))
+  end, {"-q", "caffeinate"}):start()
 end
 
--- Apply once after launch (reload/boot). Small delay lets powerSource settle.
-hs.timer.doAfter(1, applyPolicy)
+local function stopCaffeinate()
+  if caffeinateTask and caffeinateTask:isRunning() then
+    caffeinateTask:terminate()
+    caffeinateTask = nil
+  end
+  -- Ensure nothing lingering
+  hs.task.new("/usr/bin/killall", nil, {"-q", "caffeinate"}):start()
+  hs.alert.show("caffeinate: OFF (Battery)")
+end
 
--- React to plug/unplug changes
-local pw = hs.battery.watcher.new(applyPolicy)
-pw:start()
+local function applyPowerPolicy()
+  if isOnAC() then startCaffeinate() else stopCaffeinate() end
+end
 
-refreshMenu()
+-- Run once on Hammerspoon launch (covers reboot/login)
+applyPowerPolicy()
+
+-- Watch for power changes (plug/unplug)
+local powerWatcher = hs.battery.watcher.new(function()
+  applyPowerPolicy()
+end)
+powerWatcher:start()

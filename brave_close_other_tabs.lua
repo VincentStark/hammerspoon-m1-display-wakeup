@@ -1,19 +1,47 @@
 -- Cmd-Shift-M: In Brave, close other tabs (leave active tab; keep pinned tabs)
--- Change keepPinned to false if you want to close pinned tabs too.
+-- Fixed for multiple profiles: matches by actual focused window title
 
 local function braveCloseOtherTabs()
+    -- Get the actual focused window title from Hammerspoon (reliable)
+    local focusedWin = hs.window.focusedWindow()
+    if not focusedWin then
+      return false, "no-window"
+    end
+    local focusedTitle = focusedWin:title()
+    if not focusedTitle or focusedTitle == "" then
+      return false, "no-title"
+    end
+
+    -- Escape the title for AppleScript (double quotes and backslashes)
+    local escapedTitle = focusedTitle:gsub("\\", "\\\\"):gsub('"', '\\"')
+
     local script = [[
       tell application "Brave Browser"
-        if (count of windows) is 0 then return "no-window"
-        set w to front window
-        set tabCount to count of tabs of w
+        set windowCount to count of windows
+        if windowCount is 0 then return "no-window"
+        
+        set targetTitle to "]] .. escapedTitle .. [["
+        set targetWindow to missing value
+        
+        -- Find window matching the focused title
+        repeat with w in windows
+          if name of w is targetTitle then
+            set targetWindow to w
+            exit repeat
+          end if
+        end repeat
+        
+        if targetWindow is missing value then return "window-not-found"
+        
+        set tabCount to count of tabs of targetWindow
         if tabCount ≤ 1 then return "nothing"
+        
         set keepPinned to true
-  
-        set idx to active tab index of w
+        set idx to active tab index of targetWindow
+        
         repeat with i from tabCount to 1 by -1
           if i is not idx then
-            set t to tab i of w
+            set t to tab i of targetWindow
             set isPinned to false
             try
               set isPinned to pinned of t
@@ -39,11 +67,14 @@ local function braveCloseOtherTabs()
         hs.alert.show("Only one tab")
       elseif res == "no-window" then
         hs.alert.show("No Brave window")
+      elseif res == "no-title" then
+        hs.alert.show("Could not get window title")
+      elseif res == "window-not-found" then
+        hs.alert.show("Window mismatch - try again")
       end
-      -- success ("done") shows nothing; keystroke swallowed
+      -- success ("done") shows nothing
     else
       -- not Brave: pass-through ⌘⇧M
       hs.eventtap.keyStroke({"cmd","shift"}, "M", 0)
     end
   end)
-  

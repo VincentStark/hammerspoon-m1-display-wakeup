@@ -12,8 +12,11 @@ local function braveCloseOtherTabs()
       return false, "no-title"
     end
 
+    -- Strip " - Brave" suffix (Hammerspoon includes it, AppleScript doesn't)
+    local titleForMatch = focusedTitle:gsub(" %- Brave$", "")
+    
     -- Escape the title for AppleScript (double quotes and backslashes)
-    local escapedTitle = focusedTitle:gsub("\\", "\\\\"):gsub('"', '\\"')
+    local escapedTitle = titleForMatch:gsub("\\", "\\\\"):gsub('"', '\\"')
 
     local script = [[
       tell application "Brave Browser"
@@ -23,13 +26,23 @@ local function braveCloseOtherTabs()
         set targetTitle to "]] .. escapedTitle .. [["
         set targetWindow to missing value
         
-        -- Find window matching the focused title
+        -- Find window matching the focused title (exact match first)
         repeat with w in windows
           if name of w is targetTitle then
             set targetWindow to w
             exit repeat
           end if
         end repeat
+        
+        -- Fallback: partial match (in case of minor differences)
+        if targetWindow is missing value then
+          repeat with w in windows
+            if name of w contains targetTitle or targetTitle contains name of w then
+              set targetWindow to w
+              exit repeat
+            end if
+          end repeat
+        end if
         
         if targetWindow is missing value then return "window-not-found"
         
@@ -70,7 +83,9 @@ local function braveCloseOtherTabs()
       elseif res == "no-title" then
         hs.alert.show("Could not get window title")
       elseif res == "window-not-found" then
-        hs.alert.show("Window mismatch - try again")
+        -- This can happen with isolated profiles (e.g., Clawdbot browser)
+        -- that run with separate user-data-dir
+        hs.alert.show("Window not accessible (separate profile?)")
       end
       -- success ("done") shows nothing
     else
